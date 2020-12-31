@@ -12,7 +12,7 @@
     </appender>
 
     <appender name="SAVE-TO-FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/mjadapter.log</file>
+        <file>${LOG_PATH}/signadapter.log</file>
         <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <Pattern>
                 %d{dd-MM-yyyy HH:mm:ss.SSS} [%thread] %-5level %logger{36}.%M - %msg%n
@@ -25,7 +25,7 @@
             <!-- each file should be at most [maxFileSize], keep [maxHistory] days worth of history, but at most [totalSizeCap] -->
             <maxFileSize>100MB</maxFileSize>
             <fileNamePattern>
-                ${LOG_PATH}/archived/mjadapter.%d{yyyy-MM-dd}.%i.log
+                ${LOG_PATH}/archived/signadapter.%d{yyyy-MM-dd}.%i.log
             </fileNamePattern>
             <maxHistory>30</maxHistory>
             <totalSizeCap>1GB</totalSizeCap>

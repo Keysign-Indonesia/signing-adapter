@@ -8,11 +8,8 @@ import com.mjh.adapter.signing.common.SignAdapterException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.security.GeneralSecurityException;
-
-public class MyExternalSignature implements ExternalSignature {
-    Logger logger = LoggerFactory.getLogger(MyExternalSignature.class);
+public class MyOldExternalSignature implements ExternalSignature {
+    Logger logger = LoggerFactory.getLogger(MyOldExternalSignature.class);
 
     private String profileName;
     private String hashAlgorithm;
@@ -22,7 +19,7 @@ public class MyExternalSignature implements ExternalSignature {
     private String refToken;
     private String keyId;
 
-    public MyExternalSignature(String profileName, String signingUrl, String hashAlgorithm, String jwToken, String refToken, String keyId) {
+    public MyOldExternalSignature(String profileName, String signingUrl, String hashAlgorithm, String jwToken, String refToken, String keyId) {
         logger.debug("Create new external signing");
         this.profileName = profileName;
         this.signingUrl = signingUrl;
@@ -48,7 +45,7 @@ public class MyExternalSignature implements ExternalSignature {
     public byte[] sign(byte[] bytes) throws SignAdapterException {
         logger.debug("Processing External Sign method process");
         try {
-            return MyUtil.base64decode(MyUtil.POSTHashRequestResponse(this.signingUrl, this.profileName, MyUtil.base64encode(bytes), jwToken, refToken, keyId));
+            return Base64.decode(MyUtil.POSTHashRequestResponse(this.signingUrl, this.profileName, MyUtil.utilBase64encode(bytes), jwToken, refToken, keyId));
         } catch (SignAdapterException sae) {
             throw sae;
         } catch (Exception ex) {

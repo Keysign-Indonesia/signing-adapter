@@ -8,9 +8,11 @@ import com.itextpdf.text.pdf.PdfSignatureAppearance;
 import com.itextpdf.text.pdf.PdfStamper;
 import com.itextpdf.text.pdf.security.*;
 import com.mjh.adapter.signing.common.ConstantID;
+import com.mjh.adapter.signing.common.SignAdapterException;
 import com.mjh.adapter.signing.model.DocFileSigningRequest;
 import com.mjh.adapter.signing.model.DocFileSigningResponse;
 import com.mjh.adapter.signing.utils.MyExternalSignature;
+import com.mjh.adapter.signing.utils.MyOldExternalSignature;
 import com.mjh.adapter.signing.utils.MyUtil;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
@@ -19,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
@@ -44,6 +47,8 @@ public class SigningAdapterService {
     private String tsaUsername;
     @Value("${tsa.service-pass}")
     private String tsaPassword;
+    @Value("${apg.keyId}")
+    private String strKeyId;
 
     Logger logger = LoggerFactory.getLogger(SigningAdapterService.class);
 
@@ -56,77 +61,107 @@ public class SigningAdapterService {
         try{
             logger.info(serviceStart("docSigningZ"));
             logger.debug(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(signingRequest));
-        }catch (Exception e){
-        }
+        }catch (Exception e){}
 
-        if (signingRequest != null && ConstantID.checkInputOK.equals(signingRequest.checkInput())) {
-            checkAndWarningSpesificEmptyParam(signingRequest);
-            String signerProfileName = signingRequest.getProfileName();
-            if(signerProfileName != null && !"".equals(signerProfileName.trim())) {
+        try {
 
-                final List<Certificate> certs = MyUtil.getSignerCertChainRequestResponse(certChainUrl, signerProfileName, signingRequest.getJwToken(), signingRequest.getRefToken());
-                Certificate[] chain = certs.toArray(new Certificate[certs.size()]);
+            if (signingRequest != null && ConstantID.checkInputOK.equals(signingRequest.checkInput())) {
+                checkAndWarningSpesificEmptyParam(signingRequest);
+                String signerProfileName = signingRequest.getProfileName();
+                if(signerProfileName != null && !"".equals(signerProfileName.trim())) {
 
-                TSAClient tsaClient = null;
-                if(tsaURL != null && !"".equals(tsaURL.trim())) {
-                    if(tsaUsername != null && !"".equals(tsaUsername.trim()) && !"yourusername".equals(tsaUsername.trim())) {
-                        if (tsaPassword != null && !"".equals(tsaPassword.trim()) && !"yourpassword".equals(tsaPassword.trim())) {
-                            tsaClient = new TSAClientBouncyCastle(tsaURL, tsaUsername, tsaPassword);
+                    final List<Certificate> certs = MyUtil.getSignerCertChainRequestResponse(certChainUrl, signerProfileName, signingRequest.getJwToken(), signingRequest.getRefToken(), strKeyId);
+                    Certificate[] chain = certs.toArray(new Certificate[certs.size()]);
+                    logger.debug("Finish getting certificate chain");
+
+                    TSAClient tsaClient = null;
+                    logger.debug("Try setup TSAClient");
+                    if(tsaURL != null && !"".equals(tsaURL.trim())) {
+                        if(tsaUsername != null && !"".equals(tsaUsername.trim()) && !"yourusername".equals(tsaUsername.trim())) {
+                            if (tsaPassword != null && !"".equals(tsaPassword.trim()) && !"yourpassword".equals(tsaPassword.trim())) {
+                                logger.debug("Setup TSA Client with user password");
+                                tsaClient = new TSAClientBouncyCastle(tsaURL, tsaUsername, tsaPassword);
+                            }
                         }
-                    }
-                    if(tsaClient == null)
+                        if(tsaClient == null)
+                            logger.debug("Setup TSA Client without user password");
                         tsaClient = new TSAClientBouncyCastle(tsaURL);
-                }
+                    }
 
-                List<CrlClient> crlList = new ArrayList<>();
-                if(crlURL != null && !"".equals(crlURL.trim()) && !"empty".equals(crlURL.trim())) {
-                    CrlClient crlClient = new CrlClientOnline(crlURL);
-                    crlList.add(crlClient);
-                }
-                try{
-                    CrlClient crlClient = new CrlClientOnline(chain);
-                    crlList.add(crlClient);
-                } catch (Exception e){}
+                    List<CrlClient> crlList = new ArrayList<>();
+                    logger.debug("Try to setup CrlClient");
+                    try{
+                        logger.debug("Setup Crl Client using cert chain info");
+                        CrlClient crlClient = new CrlClientOnline(chain);
+                        crlList.add(crlClient);
+                    } catch (Exception e){}
+                    if(crlURL != null && !"".equals(crlURL.trim()) && !"empty".equals(crlURL.trim())) {
+                        logger.debug("Setup Crl Client using predefine url");
+                        CrlClient crlClient = new CrlClientOnline(crlURL);
+                        crlList.add(crlClient);
+                    }
+                    if(crlList.size()<1) {
+                        logger.debug("Empty Crl Client, remove crl list object");
+                        crlList = null;
+                    }
 
-                if(crlList.size()<1) {
-                    crlList = null;
-                }
+                    logger.debug("Setup spesimen rectangle");
+                    Rectangle rectangle = new Rectangle(signingRequest.getVisLLX(), signingRequest.getVisLLY(), signingRequest.getVisURX(), signingRequest.getVisURY());
 
-                Rectangle rectangle = new Rectangle(signingRequest.getVisLLX(), signingRequest.getVisLLY(), signingRequest.getVisURX(), signingRequest.getVisURY());
+                    try {
+                        logger.debug("Setup spesimen image");
+                        com.itextpdf.text.Image img = com.itextpdf.text.Image.getInstance(signingRequest.getSpesimenPath());
+                        img.setAbsolutePosition(0, 0);
+                        float newWidth = signingRequest.getVisURX() - signingRequest.getVisLLX();
+                        float newHeight = signingRequest.getVisURY() - signingRequest.getVisLLY();
+                        img.scaleToFit(newWidth, newHeight);
+                        logger.debug("Finish setup spesimen image");
 
-                try {
-                    com.itextpdf.text.Image img = com.itextpdf.text.Image.getInstance(signingRequest.getSpesimenPath());
-                    img.setAbsolutePosition(0, 0);
-                    float newWidth = signingRequest.getVisURX() - signingRequest.getVisLLX();
-                    float newHeight = signingRequest.getVisURY() - signingRequest.getVisLLY();
-                    img.scaleToFit(newWidth, newHeight);
+                        sign(signingRequest.getSrc(), signingRequest.getDest(), signingRequest.getDocpass()
+                                ,chain, DigestAlgorithms.SHA256, MakeSignature.CryptoStandard.CMS
+                                , signingRequest.getReason(), signingRequest.getLocation()
+                                , rectangle, signingRequest.getVisSignaturePage(), img, signingRequest.getCertificatelevel()
+                                , crlList, tsaClient, signerProfileName, signingRequest.getJwToken(), signingRequest.getRefToken());
 
-                    sign(signingRequest.getSrc(), signingRequest.getDest(),chain, DigestAlgorithms.SHA256
-                            , MakeSignature.CryptoStandard.CMS, signingRequest.getReason(), signingRequest.getLocation()
-                            , rectangle, signingRequest.getVisSignaturePage(), img, signingRequest.getCertificatelevel()
-                            , crlList, tsaClient, signerProfileName, signingRequest.getJwToken(), signingRequest.getRefToken());
-
-                    docFileSigningResponse = new DocFileSigningResponse();
-                    docFileSigningResponse.setStatus(ConstantID.responStatusSuccess);
-                    docFileSigningResponse.setErrorCode(ConstantID.errCodeSUCCESS);
-                    docFileSigningResponse.setErrorMessage(ConstantID.errMsgSuccess);
-                } catch (Exception e) {
+                        docFileSigningResponse = new DocFileSigningResponse();
+                        docFileSigningResponse.setStatus(ConstantID.responStatusSuccess);
+                        docFileSigningResponse.setErrorCode(ConstantID.errCodeSUCCESS);
+                        docFileSigningResponse.setErrorMessage(ConstantID.errMsgSuccess);
+                    } catch (SignAdapterException sae) {
+                        docFileSigningResponse = new DocFileSigningResponse();
+                        docFileSigningResponse.setStatus(ConstantID.responStatusFail);
+                        docFileSigningResponse.setErrorCode(sae.getCode());
+                        docFileSigningResponse.setErrorMessage(sae.getMessage());
+                    } catch (Exception ex) {
+                        logger.error("ERROR process signing ", ex);
+                        docFileSigningResponse = new DocFileSigningResponse();
+                        docFileSigningResponse.setStatus(ConstantID.responStatusFail);
+                        docFileSigningResponse.setErrorCode(ConstantID.errCodeInternalServerError);
+                        docFileSigningResponse.setErrorMessage(ex.getMessage());
+                    }
+                } else {
                     docFileSigningResponse = new DocFileSigningResponse();
                     docFileSigningResponse.setStatus(ConstantID.responStatusFail);
-                    docFileSigningResponse.setErrorCode(ConstantID.errCodeInvalidInput);
-                    docFileSigningResponse.setErrorMessage(e.getMessage());
+                    docFileSigningResponse.setErrorCode(ConstantID.errCodeProfilenameNotFound);
+                    docFileSigningResponse.setErrorMessage("Profilename not found");
                 }
             } else {
                 docFileSigningResponse = new DocFileSigningResponse();
                 docFileSigningResponse.setStatus(ConstantID.responStatusFail);
                 docFileSigningResponse.setErrorCode(ConstantID.errCodeInvalidInput);
-                docFileSigningResponse.setErrorMessage("Crypto worker not found");
+                docFileSigningResponse.setErrorMessage("Mandatory field(s) should not be empty");
             }
-        } else {
+        } catch (SignAdapterException sae) {
             docFileSigningResponse = new DocFileSigningResponse();
             docFileSigningResponse.setStatus(ConstantID.responStatusFail);
-            docFileSigningResponse.setErrorCode(ConstantID.errCodeInvalidInput);
-            docFileSigningResponse.setErrorMessage("Mandatory field(s) should not be empty");
+            docFileSigningResponse.setErrorCode(sae.getCode());
+            docFileSigningResponse.setErrorMessage(sae.getMessage());
+        } catch (Exception ex) {
+            logger.error("ERROR process signing ", ex);
+            docFileSigningResponse = new DocFileSigningResponse();
+            docFileSigningResponse.setStatus(ConstantID.responStatusFail);
+            docFileSigningResponse.setErrorCode(ConstantID.errCodeInternalServerError);
+            docFileSigningResponse.setErrorMessage(ex.getMessage());
         }
 
         try {
@@ -150,7 +185,7 @@ public class SigningAdapterService {
         }
     }
 
-    private void sign(String src, String dest,
+    private void sign(String src, String dest, String docPass,
                       java.security.cert.Certificate[] chain, String digestAlgorithm,
                       MakeSignature.CryptoStandard subfilter,
                       String reason, String location, Rectangle rectangle, int visPage,
@@ -158,9 +193,25 @@ public class SigningAdapterService {
                       String signerProfileName, String jwToken, String refToken)
             throws GeneralSecurityException, IOException, DocumentException {
         // Creating the reader and the stamper
-        PdfReader reader = new PdfReader(src);
+        logger.debug("Entering Sign method process");
+        boolean successProcess = true;
+
+        PdfReader reader;
+        if(docPass != null && !"".equals(docPass.trim())) {
+            reader = new PdfReader(src, docPass.getBytes());
+        } else reader = new PdfReader(src);
+
+        int numberOfPages = reader.getNumberOfPages();
+        if(numberOfPages < visPage) {
+            logger.warn("visible page more than doc number of pages, using last page");
+            visPage = numberOfPages;
+        }
+
         FileOutputStream os = new FileOutputStream(dest);
         try {
+            //adding refToken to reason
+            reason = "["+refToken+"] " + reason;
+
             PdfStamper stamper = PdfStamper.createSignature(reader, os, '\0', null, true);
             // Creating the appearance
             PdfSignatureAppearance appearance = stamper.getSignatureAppearance();
@@ -177,12 +228,21 @@ public class SigningAdapterService {
             appearance.setRenderingMode(PdfSignatureAppearance.RenderingMode.GRAPHIC);
             appearance.setSignatureGraphic(img);
 
+
             // Creating the signature
+            logger.debug("Prepare to create external signature");
             ExternalDigest digest = new BouncyCastleDigest();
-            ExternalSignature signature = new MyExternalSignature(signerProfileName, hashUrl, digestAlgorithm, jwToken, refToken);
+            ExternalSignature signature;
+            if(signerProfileName.endsWith("PS"))
+                signature = new MyOldExternalSignature(signerProfileName, hashUrl, digestAlgorithm, jwToken, refToken, strKeyId);
+            else
+                signature = new MyExternalSignature(signerProfileName, hashUrl, digestAlgorithm, jwToken, refToken, strKeyId);
             MakeSignature.signDetached(appearance, digest, signature, chain, crlList, null, tsaClient, 0, subfilter);
-        } catch (Exception e) {throw e;}
-        finally {
+        } catch (Exception e) {
+            logger.error("Error Signing document",e);
+            successProcess = false;
+            throw e;
+        } finally {
             if(reader != null){
                 try{
                     reader.close();
@@ -192,6 +252,10 @@ public class SigningAdapterService {
                 try{
                     os.close();
                 } catch (Exception e){}
+            }
+            if(!successProcess){
+                File destFile = new File(dest);
+                if(destFile.exists()) destFile.delete();
             }
         }
     }

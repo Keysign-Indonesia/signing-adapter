@@ -8,7 +8,6 @@ import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -16,6 +15,10 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
+import com.mjh.adapter.signing.common.ConstantID;
+import com.mjh.adapter.signing.common.SignAdapterException;
+import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.httpclient.HttpStatus;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
@@ -26,178 +29,338 @@ public class MyUtil {
     private static final Logger logger = LoggerFactory.getLogger(MyUtil.class);
 
     public static String base64encode(byte[] value) {
-        return new String(Base64.getEncoder().encode(value));
+        return new String(Base64.encodeBase64(value));
     }
 
     public static byte[] base64decode(String value) {
-        return Base64.getDecoder().decode(value);
+        return Base64.decodeBase64(value);
     }
 
-    public static String POSTHashRequestResponse(String urlEndpoint, String workerName, String processData, String jwToken, String refToken) throws IOException {
+    public static String utilBase64encode(byte[] value) {
+        return new String(java.util.Base64.getEncoder().encode(value));
+    }
+
+    public static byte[] utilBase64decode(String value) {
+        return java.util.Base64.getDecoder().decode(value);
+    }
+
+    public static String POSTHashRequestResponse(String urlEndpoint, String workerName, String processData, String jwToken, String refToken, String keyId) throws SignAdapterException, Exception {
         if(urlEndpoint == null) urlEndpoint = "http://localhost:9999/rest/hashSigning";
         logger.info("url : "+ urlEndpoint);
-        final String POST_PARAMS =
-                "{\n"
-                        + "\"workerName\": \""+workerName+"\", "
-                        + "\"data\": \""+processData+"\","
-                        + "\"jwToken\": \""+(jwToken!=null?jwToken:"")+"\","
-                        + "\"refToken\": \""+(refToken!=null?refToken:"")+"\""
-                        + "\n}";
-        logger.info("Param : " + POST_PARAMS);
-        trustAllCert();
-        URL obj = new URL(urlEndpoint);
-        HttpURLConnection postConnection = (HttpURLConnection) obj.openConnection();
-        postConnection.setRequestMethod("POST");
-        postConnection.setRequestProperty("Content-Type", "application/json");
-        postConnection.setDoOutput(true);
-        OutputStream os = postConnection.getOutputStream();
-        os.write(POST_PARAMS.getBytes());
-        os.flush();
-        os.close();
-        int responseCode = postConnection.getResponseCode();
-        logger.info("POST Response Code :  " + responseCode);
-        logger.debug("POST Response Message : " + postConnection.getResponseMessage());
-        if (responseCode == HttpURLConnection.HTTP_CREATED
-                || responseCode == HttpURLConnection.HTTP_OK)
-        { //success
-            BufferedReader in = new BufferedReader(new InputStreamReader(
-                    postConnection.getInputStream()));
-            String inputLine;
-            StringBuffer response = new StringBuffer();
-            while ((inputLine = in .readLine()) != null) {
-                response.append(inputLine);
-            } in .close();
-            // print result
-            logger.debug(response.toString());
-            JSONObject jsonObject = new JSONObject(response.toString());
+        final String POST_PARAMS = "{\n"
+                + "\"workerName\": \""+workerName+"\", "
+                + "\"data\": \""+processData+"\", "
+                + "\"jwToken\": \""+(jwToken!=null?jwToken:"")+"\", "
+                + "\"refToken\": \""+(refToken!=null?refToken:"")+"\""
+                + "\n}";
 
-            return jsonObject.getString("data");
-        } else {
-            logger.warn("POST NOT WORKED");
+        if(keyId == null || !"".equals(keyId.trim()))
+        {
+            keyId = "6d7a673f-ec98-40cf-a1a1-dc9966992c78";
         }
-        return null;
+        logger.info("Param : " + POST_PARAMS);
+        try {
+            trustAllCert();
+            URL obj = new URL(urlEndpoint);
+            HttpURLConnection postConnection = (HttpURLConnection) obj.openConnection();
+            postConnection.setRequestMethod("POST");
+            postConnection.setRequestProperty("Content-Type", "application/json");
+            postConnection.setRequestProperty("x-Gateway-APIKey", keyId);
+            if(jwToken!=null && !"".equals(jwToken.trim())){
+                postConnection.setRequestProperty("Authorization", "Bearer "+jwToken);
+            }
+            postConnection.setDoOutput(true);
+            OutputStream os = postConnection.getOutputStream();
+            os.write(POST_PARAMS.getBytes());
+            os.flush();
+            os.close();
+            int responseCode = postConnection.getResponseCode();
+            logger.info("POST Response Code :  " + responseCode);
+            logger.debug("POST Response Message : " + postConnection.getResponseMessage());
+            if (responseCode == HttpURLConnection.HTTP_CREATED
+                    || responseCode == HttpURLConnection.HTTP_OK)
+            { //success
+                BufferedReader in = new BufferedReader(new InputStreamReader(
+                        postConnection.getInputStream()));
+                String inputLine;
+                StringBuffer response = new StringBuffer();
+                while ((inputLine = in .readLine()) != null) {
+                    response.append(inputLine);
+                } in .close();
+                // print result
+                logger.debug(response.toString());
+//                System.out.println(response.toString());
+                JSONObject jsonObject = new JSONObject(response.toString());
+
+                boolean invokeSuccess = true;
+                String statusCode = "00";
+                try {
+                    invokeSuccess = jsonObject.getBoolean("status");
+                } catch (Exception ex){}
+                try {
+                    statusCode = jsonObject.getString("statusCode");
+                } catch (Exception ex){}
+
+                if(!invokeSuccess){
+                    String result = "Internal Signing Server Error";
+                    try{
+                        result = jsonObject.getString("errorMessage");
+                    } catch (Exception ex){}
+                    throw new SignAdapterException("Error while signing ["+result+"]", ConstantID.errCodePostHashSigning);
+                }
+                if(!statusCode.equals("00")){
+                    String result = ConstantID.errInternalApiServer;
+                    try{
+                        result = jsonObject.getString("result");
+                    } catch (Exception ex){}
+                    if(!ConstantID.errInternalApiServer.equals(result))
+                        throw new SignAdapterException("Error while signing ["+result+"]", statusCode);
+                    else
+                        throw new SignAdapterException("Error while signing ["+result+"]", ConstantID.errCodePostHashSigning);
+                }
+
+                try{
+                    logger.info("Sign ArchiveID : "+ jsonObject.getString("archiveId"));
+                }catch (Exception ex){}
+                return jsonObject.getString("data");
+            } else {
+                logger.warn("Failed invoke service");
+                String responseMessage = HttpStatus.getStatusText(responseCode);
+                throw new SignAdapterException("Http status ["+responseCode+"] : "+responseMessage, ConstantID.errCodePostHashSigning);
+            }
+        } catch (SignAdapterException e) {
+            throw e;
+        }catch (Exception ex) {
+            throw new SignAdapterException("Error while signing process ["+ex.getMessage()+"]", ex.getCause(), ConstantID.errCodePostHashSigning);
+        }
     }
 
-    public static List<Certificate> getSignerCertChainRequestResponse(String urlEndpoint, String profileName, String jwToken, String refToken) throws Exception {
+    public static List<Certificate> getSignerCertChainRequestResponse(String urlEndpoint, String profileName, String jwToken, String refToken, String keyId) throws SignAdapterException, Exception {
         if(urlEndpoint == null) urlEndpoint = "http://localhost:9999/rest/getSignerCertChain";
         logger.info("url : "+ urlEndpoint);
-        final String POST_PARAMS =
-                "{\n"
-                        + "\"profileName\": \""+profileName+"\","
-                        + "\"jwToken\": \""+(jwToken!=null?jwToken:"")+"\","
-                        + "\"refToken\": \""+(refToken!=null?refToken:"")+"\""
-                        + "\n}";
+        final String POST_PARAMS = "{\n"
+                + "\"profileName\": \""+profileName+"\", "
+                + "\"jwToken\": \""+(jwToken!=null?jwToken:"")+"\", "
+                + "\"refToken\": \""+(refToken!=null?refToken:"")+"\""
+                + "\n}";
+
         logger.info("Param : " + POST_PARAMS);
-        trustAllCert();
-        URL obj = new URL(urlEndpoint);
-        HttpURLConnection postConnection = (HttpURLConnection) obj.openConnection();
-        postConnection.setRequestMethod("POST");
-        postConnection.setRequestProperty("Content-Type", "application/json");
-        postConnection.setDoOutput(true);
-        OutputStream os = postConnection.getOutputStream();
-        os.write(POST_PARAMS.getBytes());
-        os.flush();
-        os.close();
-        int responseCode = postConnection.getResponseCode();
-        logger.info("POST Response Code :  " + responseCode);
-        logger.debug("POST Response Message : " + postConnection.getResponseMessage());
-        if (responseCode == HttpURLConnection.HTTP_CREATED
-                || responseCode == HttpURLConnection.HTTP_OK)
-        { //success
-            List<Certificate> certs = new ArrayList<>();
-
-            BufferedReader in = new BufferedReader(new InputStreamReader(
-                    postConnection.getInputStream()));
-            String inputLine;
-            StringBuffer response = new StringBuffer();
-            while ((inputLine = in .readLine()) != null) {
-                response.append(inputLine);
-            } in .close();
-            // print result
-            logger.debug(response.toString());
-            JSONObject jsonObject = new JSONObject(response.toString());
-            JSONArray entriesArray = (JSONArray) jsonObject.get("certs");
-
-            for (Object i : entriesArray) {
-                // We happen to know that JSONArray contains strings.
-                byte[] inCert = base64decode((String) i);
-                try {
-                    Certificate certificate = CertificateFactory.getInstance("X509").generateCertificate(new ByteArrayInputStream(inCert));
-                    X509Certificate cert = (X509Certificate) certificate;
-                    logger.debug("Certificate Info : "+cert.getSerialNumber());
-                    logger.debug("Certificate SigAlgName : "+cert.getSigAlgName());
-                    certs.add(certificate);
-                } catch (CertificateException e) {
-                    throw new Exception("Malformed certs data have been received: " + e.getLocalizedMessage());
-                }
-            }
-            return certs;
-        } else {
-            logger.debug("POST NOT WORKED");
+        if(keyId == null || !"".equals(keyId.trim()))
+        {
+            keyId = "6d7a673f-ec98-40cf-a1a1-dc9966992c78";
         }
-        return null;
+        try{
+            trustAllCert();
+            URL obj = new URL(urlEndpoint);
+            HttpURLConnection postConnection = (HttpURLConnection) obj.openConnection();
+            postConnection.setRequestMethod("POST");
+            postConnection.setRequestProperty("Content-Type", "application/json");
+            postConnection.setRequestProperty("x-Gateway-APIKey", keyId);
+            if(jwToken!=null && !"".equals(jwToken.trim())){
+                postConnection.setRequestProperty("Authorization", "Bearer "+jwToken);
+            }
+            postConnection.setDoOutput(true);
+            OutputStream os = postConnection.getOutputStream();
+            os.write(POST_PARAMS.getBytes());
+            os.flush();
+            os.close();
+            int responseCode = postConnection.getResponseCode();
+            logger.info("POST Response Code :  " + responseCode);
+            logger.debug("POST Response Message : " + postConnection.getResponseMessage());
+            if (responseCode == HttpURLConnection.HTTP_CREATED
+                    || responseCode == HttpURLConnection.HTTP_OK)
+            { //success
+                List<Certificate> certs = new ArrayList<>();
+
+                BufferedReader in = new BufferedReader(new InputStreamReader(
+                        postConnection.getInputStream()));
+                String inputLine;
+                StringBuffer response = new StringBuffer();
+                while ((inputLine = in .readLine()) != null) {
+                    response.append(inputLine);
+                } in .close();
+                // print result
+                logger.debug(response.toString());
+//                System.out.println(response.toString());
+                JSONObject jsonObject = new JSONObject(response.toString());
+
+                boolean invokeSuccess = true;
+                String statusCode = "00";
+                try {
+                    invokeSuccess = jsonObject.getBoolean("status");
+                } catch (Exception ex){}
+                try {
+                    statusCode = jsonObject.getString("statusCode");
+                } catch (Exception ex){}
+
+                if(!invokeSuccess){
+                    String result = "Internal Signing Server Error";
+                    try{
+                        result = jsonObject.getString("errorMessage");
+                    } catch (Exception ex){}
+                    throw new SignAdapterException("Error while signing ["+result+"]", ConstantID.errCodeGetCertChain);
+                }
+                if(!statusCode.equals("00")){
+                    String result = ConstantID.errInternalApiServer;
+                    try{
+                        result = jsonObject.getString("result");
+                    } catch (Exception ex){}
+                    if(!ConstantID.errInternalApiServer.equals(result))
+                        throw new SignAdapterException("Error while signing ["+result+"]", statusCode);
+                    else
+                        throw new SignAdapterException("Error while signing ["+result+"]", ConstantID.errCodeGetCertChain);
+                }
+
+                JSONArray entriesArray = (JSONArray) jsonObject.get("certs");
+                CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+                for (Object i : entriesArray) {
+                    // We happen to know that JSONArray contains strings.
+                    byte[] inCert = base64decode(checkB64String((String) i));
+                    try {
+                        Certificate certificate = certFactory.generateCertificate(new ByteArrayInputStream(inCert));
+                        X509Certificate cert = (X509Certificate) certificate;
+                        logger.debug("Certificate Info : "+cert.getSerialNumber());
+                        logger.debug("Certificate SigAlgName : "+cert.getSigAlgName());
+                        certs.add(certificate);
+                    } catch (CertificateException e) {
+                        throw new SignAdapterException("Malformed certs data have been received: " + e.getLocalizedMessage(), e.getCause(), ConstantID.errCodeGetCertChain);
+                    }  catch (Exception e) {
+                        throw new SignAdapterException("Exception while process certificate response: " + e.getLocalizedMessage(), e.getCause(), ConstantID.errCodeGetCertChain);
+                    }
+                }
+                return certs;
+            } else {
+                logger.warn("Failed invoke service");
+                String responseMessage = HttpStatus.getStatusText(responseCode);
+                throw new SignAdapterException("Http status ["+responseCode+"] : "+responseMessage, ConstantID.errCodeGetCertChain);
+            }
+        } catch (SignAdapterException e) {
+            throw e;
+        } catch (Exception ex) {
+            throw new SignAdapterException(ex.getMessage(), ex.getCause(),ConstantID.errCodeGetCertChain);
+        }
     }
 
-    public static List<Certificate> getSignerCertificateRequestResponse(String urlEndpoint, String profileName, String jwToken, String refToken) throws Exception {
+    public static List<Certificate> getSignerCertificateRequestResponse(String urlEndpoint, String profileName, String jwToken, String refToken, String keyId) throws SignAdapterException, Exception {
         if(urlEndpoint == null) urlEndpoint = "http://localhost:9999/rest/getSignerCertificate";
         logger.info("url : "+ urlEndpoint);
         final String POST_PARAMS =
                 "{\n"
-                        + "\"profileName\": \""+profileName+"\","
-                        + "\"jwToken\": \""+(jwToken!=null?jwToken:"")+"\","
+                        + "\"profileName\": \""+profileName+"\", "
+                        + "\"jwToken\": \""+(jwToken!=null?jwToken:"")+"\", "
                         + "\"refToken\": \""+(refToken!=null?refToken:"")+"\""
                         + "\n}";
         logger.info("Param : " + POST_PARAMS);
-        trustAllCert();
-        URL obj = new URL(urlEndpoint);
-        HttpURLConnection postConnection = (HttpURLConnection) obj.openConnection();
-        postConnection.setRequestMethod("POST");
-        postConnection.setRequestProperty("Content-Type", "application/json");
-        postConnection.setDoOutput(true);
-        OutputStream os = postConnection.getOutputStream();
-        os.write(POST_PARAMS.getBytes());
-        os.flush();
-        os.close();
-        int responseCode = postConnection.getResponseCode();
-        logger.info("POST Response Code :  " + responseCode);
-        logger.debug("POST Response Message : " + postConnection.getResponseMessage());
-        if (responseCode == HttpURLConnection.HTTP_CREATED
-                || responseCode == HttpURLConnection.HTTP_OK)
-        { //success
-            List<Certificate> certs = new ArrayList<>();
-
-            BufferedReader in = new BufferedReader(new InputStreamReader(
-                    postConnection.getInputStream()));
-            String inputLine;
-            StringBuffer response = new StringBuffer();
-            while ((inputLine = in .readLine()) != null) {
-                response.append(inputLine);
-            } in .close();
-            // print result
-            logger.debug(response.toString());
-            JSONObject jsonObject = new JSONObject(response.toString());
-            JSONArray entriesArray = (JSONArray) jsonObject.get("certs");
-
-            for (Object i : entriesArray) {
-                // We happen to know that JSONArray contains strings.
-                byte[] inCert = base64decode((String) i);
-                try {
-                    Certificate certificate = CertificateFactory.getInstance("X509").generateCertificate(new ByteArrayInputStream(inCert));
-                    X509Certificate cert = (X509Certificate) certificate;
-                    logger.debug("Certificate Info : "+cert.getSerialNumber());
-                    logger.debug("Certificate SigAlgName : "+cert.getSigAlgName());
-                    certs.add(certificate);
-                } catch (CertificateException e) {
-                    throw new Exception("Malformed certs data have been received: " + e.getLocalizedMessage());
-                }
-            }
-            return certs;
-        } else {
-            logger.debug("POST NOT WORKED");
+        if(keyId == null || !"".equals(keyId.trim()))
+        {
+            keyId = "6d7a673f-ec98-40cf-a1a1-dc9966992c78";
         }
-        return null;
+
+        try{
+            trustAllCert();
+            URL obj = new URL(urlEndpoint);
+            HttpURLConnection postConnection = (HttpURLConnection) obj.openConnection();
+            postConnection.setRequestMethod("POST");
+            postConnection.setRequestProperty("Content-Type", "application/json");
+            postConnection.setRequestProperty("x-Gateway-APIKey", keyId);
+            if(jwToken!=null && !"".equals(jwToken.trim())){
+                postConnection.setRequestProperty("Authorization", "Bearer "+jwToken);
+            }
+            postConnection.setDoOutput(true);
+            OutputStream os = postConnection.getOutputStream();
+            os.write(POST_PARAMS.getBytes());
+            os.flush();
+            os.close();
+            int responseCode = postConnection.getResponseCode();
+            logger.info("POST Response Code :  " + responseCode);
+            logger.debug("POST Response Message : " + postConnection.getResponseMessage());
+            if (responseCode == HttpURLConnection.HTTP_CREATED
+                    || responseCode == HttpURLConnection.HTTP_OK)
+            { //success
+                List<Certificate> certs = new ArrayList<>();
+
+                BufferedReader in = new BufferedReader(new InputStreamReader(
+                        postConnection.getInputStream()));
+                String inputLine;
+                StringBuffer response = new StringBuffer();
+                while ((inputLine = in .readLine()) != null) {
+                    response.append(inputLine);
+                } in .close();
+                // print result
+                logger.debug(response.toString());
+//                System.out.println(response.toString());
+                JSONObject jsonObject = new JSONObject(response.toString());
+
+                boolean invokeSuccess = true;
+                String statusCode = "00";
+                try {
+                    invokeSuccess = jsonObject.getBoolean("status");
+                } catch (Exception ex){}
+                try {
+                    statusCode = jsonObject.getString("statusCode");
+                } catch (Exception ex){}
+                if(!invokeSuccess){
+                    String result = "Internal Signing Server Error";
+                    try{
+                        result = jsonObject.getString("errorMessage");
+                    } catch (Exception ex){}
+                    throw new SignAdapterException("Error while signing ["+result+"]", ConstantID.errCodeGetCertificate);
+                }
+                if(!statusCode.equals("00")){
+                    String result = ConstantID.errInternalApiServer;
+                    try{
+                        result = jsonObject.getString("result");
+                    } catch (Exception ex){}
+                    if(!ConstantID.errInternalApiServer.equals(result))
+                        throw new SignAdapterException("Error while signing ["+result+"]", statusCode);
+                    else
+                        throw new SignAdapterException("Error while signing ["+result+"]", ConstantID.errCodeGetCertificate);
+                }
+
+                JSONArray entriesArray = (JSONArray) jsonObject.get("certs");
+                CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+                for (Object i : entriesArray) {
+                    // We happen to know that JSONArray contains strings.
+                    byte[] inCert = base64decode(checkB64String((String) i));
+                    try {
+                        Certificate certificate = certFactory.generateCertificate(new ByteArrayInputStream(inCert));
+                        X509Certificate cert = (X509Certificate) certificate;
+                        logger.debug("Certificate Info : "+cert.getSerialNumber());
+                        logger.debug("Certificate SigAlgName : "+cert.getSigAlgName());
+                        certs.add(certificate);
+                    } catch (CertificateException e) {
+                        throw new SignAdapterException("Malformed certs data have been received: " + e.getLocalizedMessage(), ConstantID.errCodeGetCertificate);
+                    }  catch (Exception e) {
+                        throw new SignAdapterException("Exception while process certificate response: " + e.getLocalizedMessage(), e.getCause(), ConstantID.errCodeGetCertificate);
+                    }
+                }
+                return certs;
+            } else {
+                logger.warn("Failed invoke service");
+                String responseMessage = HttpStatus.getStatusText(responseCode);
+                throw new SignAdapterException("Http status ["+responseCode+"] : "+responseMessage, ConstantID.errCodeGetCertificate);
+            }
+        } catch (SignAdapterException e) {
+            throw e;
+        } catch (Exception ex) {
+            throw new SignAdapterException(ex.getMessage(),ConstantID.errCodeGetCertificate);
+        }
     }
 
+    private static String readErrorStream(InputStream errorStream) throws IOException {
+        BufferedReader br = null;
+        if (errorStream != null){
+            br = new BufferedReader(new InputStreamReader(errorStream));
+        }else{
+            return null;
+        }
+        String response = "";
+        String nachricht;
+        while ((nachricht = br.readLine()) != null){
+            response += nachricht;
+        }
+        return response;
+    }
 
     private static void trustAllCert() {
         // Create a trust manager that does not validate certificate chains
@@ -225,9 +388,11 @@ public class MyUtil {
         }
     }
 
-    public static void main(String[] args) throws Exception {
-//        getSignerCertChainRequestResponse(null, "signerprofile");
-        getSignerCertChainRequestResponse("https://signing.keysign.my.id/keysign/pdfsigning/rest/getSignerCertChain", "20201113emeteraicertificate23PS", null, null);
+    private static String checkB64String(String inputCheck) throws Exception {
+        String check = inputCheck;
+        check = check.replace("\\u003d", "=");
+        check = check.replace("\\n", "\n");
+        return check;
     }
 
 }
