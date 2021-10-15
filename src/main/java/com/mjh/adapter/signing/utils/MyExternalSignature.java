@@ -21,13 +21,19 @@ public class MyExternalSignature implements ExternalSignature {
     private String jwToken;
     private String refToken;
     private String keyId;
+    private String shaChecksum;
+    private String retryFlag;
 
-    public MyExternalSignature(String profileName, String signingUrl, String hashAlgorithm, String jwToken, String refToken, String keyId) {
+    public MyExternalSignature(String profileName, String signingUrl, String hashAlgorithm
+            , String jwToken, String refToken, String keyId
+            , String shaChecksum, String retryFlag) {
         logger.debug("Create new external signing");
         this.profileName = profileName;
         this.signingUrl = signingUrl;
         this.jwToken = jwToken;
         this.refToken = refToken;
+        this.shaChecksum=shaChecksum;
+        this.retryFlag=retryFlag;
         this.hashAlgorithm = DigestAlgorithms.getDigest(DigestAlgorithms.getAllowedDigests(hashAlgorithm));
         logger.debug("External signing hashAlgorithm : "+ this.hashAlgorithm);
         this.encryptionAlgorithm = "RSA";
@@ -48,7 +54,7 @@ public class MyExternalSignature implements ExternalSignature {
     public byte[] sign(byte[] bytes) throws SignAdapterException {
         logger.debug("Processing External Sign method process");
         try {
-            return MyUtil.base64decode(MyUtil.POSTHashRequestResponse(this.signingUrl, this.profileName, MyUtil.base64encode(bytes), jwToken, refToken, keyId));
+            return MyUtil.base64decode(MyUtil.POSTHashRequestResponse(this.signingUrl, this.profileName, MyUtil.base64encode(bytes), jwToken, refToken, keyId, shaChecksum, retryFlag));
         } catch (SignAdapterException sae) {
             throw sae;
         } catch (Exception ex) {

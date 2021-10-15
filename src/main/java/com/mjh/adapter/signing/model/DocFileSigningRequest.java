@@ -35,6 +35,17 @@ public class DocFileSigningRequest {
     @ApiModelProperty(notes = "Reference Token for relation purpose")
     private String refToken;
 
+    public String getRetryFlag() {
+        return retryFlag;
+    }
+
+    public void setRetryFlag(String retryFlag) {
+        this.retryFlag = retryFlag;
+    }
+
+    @ApiModelProperty(notes = "Signing retry flag, fill 1 for retry")
+    private String retryFlag;
+
     public String getProfileName() {
         return profileName;
     }

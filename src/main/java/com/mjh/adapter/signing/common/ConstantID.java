@@ -14,6 +14,11 @@ public class ConstantID {
     public static final String errCodeGetCertificate = "94";
     public static final String errCodePostHashSigning = "95";
     public static final String errCodeExternalHashSigning = "96";
+    public static final String errCodeAbnormalErrorHashSigning = "97";
+    public static final String errCodeIntegrityCheckRevisionFailed = "80";
+    public static final String errCodeIntegrityCheckSignatureFailed = "81";
+    public static final String errCodeUpgradeDocumentException = "82";
+    public static final String errCodeCertifiedDocException = "83";
 
     public static final String errMsgSuccess = "-";
     public static final String errInternalApiServer = "Internal API Server Error";
