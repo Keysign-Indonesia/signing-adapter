@@ -83,7 +83,7 @@ public class SigningAdapterService {
     @Value("${apg.keyId}")
     private String strKeyId;
 
-    Logger logger = LoggerFactory.getLogger(com.mjh.adapter.signing.services.SigningAdapterService.class);
+    Logger logger = LoggerFactory.getLogger(SigningAdapterService.class);
 
     @PostMapping({"/docSigningZ"})
     @ApiOperation(value = "Signing Document File Rest Service", response = DocFileSigningResponse.class)
@@ -105,7 +105,6 @@ public class SigningAdapterService {
                     signingRequest.setSrc(newSrc);
                 String signerProfileName = signingRequest.getProfileName();
                 if (signerProfileName != null && !"".equals(signerProfileName.trim())) {
-                    TSAClientBouncyCastle tSAClientBouncyCastle = null;
                     List<Certificate> certs = MyUtil.getSignerCertChainRequestResponse(this.certChainUrl, signerProfileName, signingRequest.getJwToken(), signingRequest.getRefToken(), this.strKeyId);
                     Certificate[] chain = certs.<Certificate>toArray(new Certificate[certs.size()]);
                     this.logger.debug("Finish getting certificate chain");
@@ -115,23 +114,23 @@ public class SigningAdapterService {
                         if (this.tsaUsername != null && !"".equals(this.tsaUsername.trim()) && !"yourusername".equals(this.tsaUsername.trim()) &&
                                 this.tsaPassword != null && !"".equals(this.tsaPassword.trim()) && !"yourpassword".equals(this.tsaPassword.trim())) {
                             this.logger.info("Setup TSA Client with user password");
-                            tSAClientBouncyCastle = new TSAClientBouncyCastle(this.tsaURL, this.tsaUsername, this.tsaPassword);
+                            tsaClient = new TSAClientBouncyCastle(this.tsaURL, this.tsaUsername, this.tsaPassword);
                         }
-                        if (tSAClientBouncyCastle == null)
+                        if (tsaClient == null)
                             this.logger.debug("Setup TSA Client without user password");
-                        tSAClientBouncyCastle = new TSAClientBouncyCastle(this.tsaURL);
+                        tsaClient = new TSAClientBouncyCastle(this.tsaURL);
                     }
                     List<CrlClient> crlList = new ArrayList<>();
                     this.logger.debug("Try to setup CrlClient");
                     try {
                         this.logger.debug("Setup Crl Client using cert chain info");
-                        CrlClientOnline crlClientOnline = new CrlClientOnline(chain);
-                        crlList.add(crlClientOnline);
+                        CrlClient crlClient = new CrlClientOnline(chain);
+                        crlList.add(crlClient);
                     } catch (Exception exception) {}
                     if (this.crlURL != null && !"".equals(this.crlURL.trim()) && !"empty".equals(this.crlURL.trim())) {
                         this.logger.debug("Setup Crl Client using predefine url");
-                        CrlClientOnline crlClientOnline = new CrlClientOnline(new String[] { this.crlURL });
-                        crlList.add(crlClientOnline);
+                        CrlClient crlClient = new CrlClientOnline(this.crlURL);
+                        crlList.add(crlClient);
                     }
                     if (crlList.size() < 1) {
                         this.logger.debug("Empty Crl Client, remove crl list object");
@@ -150,7 +149,7 @@ public class SigningAdapterService {
                         sign(signingRequest.getSrc(), signingRequest.getDest(), signingRequest.getDocpass(), chain, "SHA-256", MakeSignature.CryptoStandard.CMS, signingRequest
 
                                 .getReason(), signingRequest.getLocation(), rectangle, signingRequest
-                                .getVisSignaturePage(), img, signingRequest.getCertificatelevel(), crlList, (TSAClient)tSAClientBouncyCastle, signerProfileName, signingRequest
+                                .getVisSignaturePage(), img, signingRequest.getCertificatelevel(), crlList, tsaClient, signerProfileName, signingRequest
                                 .getJwToken(), signingRequest.getRefToken(), shaChecksum, signingRequest
                                 .getRetryFlag());
                         docFileSigningResponse = new DocFileSigningResponse();
