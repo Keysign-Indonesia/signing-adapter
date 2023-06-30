@@ -1,39 +1,41 @@
 package com.mjh.adapter.signing.model;
 
 import com.mjh.adapter.signing.common.ConstantID;
-import io.swagger.annotations.ApiModelProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 public class DocFileSigningRequest {
-    @ApiModelProperty(notes = "Signing Profile name", required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Signing Profile name")
     private String profileName;
-    @ApiModelProperty(notes = "Signing doc password if any | not implemented yet")
+    @Schema(description = "Signing doc password if any | not implemented yet")
     private String docpass;
-    @ApiModelProperty(notes = "Document source path", required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Document source path")
     private String src;
-    @ApiModelProperty(notes = "Document destination path", required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Document destination path")
     private String dest;
-    @ApiModelProperty(notes = "Specimen path", required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Specimen path")
     private String spesimenPath;
-    @ApiModelProperty(notes = "Digital signature reason", required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Digital signature reason")
     private String reason;
-    @ApiModelProperty(notes = "Digital signature location", required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Digital signature location")
     private String location;
-    @ApiModelProperty(notes = "Digital signature page", required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Digital signature page")
     private int visSignaturePage = 1;
-    @ApiModelProperty(notes = "Digital signature rectangle left lower x coordinate", required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Digital signature rectangle left lower x coordinate")
     private int visLLX = 0;
-    @ApiModelProperty(notes = "Digital signature rectangle left lower y coordinate", required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Digital signature rectangle left lower y coordinate")
     private int visLLY = 0;
-    @ApiModelProperty(notes = "Digital signature rectangle upper right x coordinate", required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Digital signature rectangle upper right x coordinate")
     private int visURX = 0;
-    @ApiModelProperty(notes = "Digital signature rectangle upper right y coordinate", required = true)
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Digital signature rectangle upper right y coordinate")
     private int visURY = 0;
-    @ApiModelProperty(notes = "Digital signature certificate level, NOT_CERTIFIED or NO_CHANGES_ALLOWED", required = true)
+//    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Digital signature certificate level, NOT_CERTIFIED or NO_CHANGES_ALLOWED")
     private String certificatelevel;
-    @ApiModelProperty(notes = "Json Web Token for security purpose")
+    @Schema(description = "Json Web Token for security purpose")
     private String jwToken;
-    @ApiModelProperty(notes = "Reference Token for relation purpose")
+    @Schema(description = "Reference Token for relation purpose")
     private String refToken;
+    @Schema(description = "Signing retry flag, fill 1 for retry")
+    private String retryFlag;
 
     public String getRetryFlag() {
         return retryFlag;
@@ -42,9 +44,6 @@ public class DocFileSigningRequest {
     public void setRetryFlag(String retryFlag) {
         this.retryFlag = retryFlag;
     }
-
-    @ApiModelProperty(notes = "Signing retry flag, fill 1 for retry")
-    private String retryFlag;
 
     public String getProfileName() {
         return profileName;

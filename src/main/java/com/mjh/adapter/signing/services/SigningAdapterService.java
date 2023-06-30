@@ -27,10 +27,7 @@ import com.mjh.adapter.signing.common.SignAdapterException;
 import com.mjh.adapter.signing.model.DocFileSigningRequest;
 import com.mjh.adapter.signing.model.DocFileSigningResponse;
 import com.mjh.adapter.signing.utils.MyExternalSignature;
-import com.mjh.adapter.signing.utils.MyOldExternalSignature;
 import com.mjh.adapter.signing.utils.MyUtil;
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiOperation;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -41,23 +38,26 @@ import java.security.MessageDigest;
 import java.security.Provider;
 import java.security.Security;
 import java.security.cert.Certificate;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
-@RestController
+@RestController("signingadapterservices")
 @RequestMapping({"/adapter/pdfsigning/rest"})
-@Api(value = "Signing Adapter Service", description = "Operations to signing document")
+@Tag(name="Signing Adapter Service", description="Operations to signing document")
 public class SigningAdapterService {
     @Value("${MJ_HASH_URL}")
     private String hashUrl;
@@ -82,19 +82,26 @@ public class SigningAdapterService {
 
     @Value("${apg.keyId}")
     private String strKeyId;
+    @Value("${apg.systemId}")
+    private String strSystemId;
+
+    @Autowired
+    private RTSigningService rtSigningService;
 
     Logger logger = LoggerFactory.getLogger(SigningAdapterService.class);
 
     @PostMapping({"/docSigningZ"})
-    @ApiOperation(value = "Signing Document File Rest Service", response = DocFileSigningResponse.class)
-    @ResponseBody
-    public DocFileSigningResponse docSigningZ(@RequestBody DocFileSigningRequest signingRequest) throws Exception {
+    @Operation(summary = "docSigningZ", description = "Signing Document File Rest Service")
+    public ResponseEntity<DocFileSigningResponse> docSigningZ(@RequestBody DocFileSigningRequest signingRequest) throws Exception {
         DocFileSigningResponse docFileSigningResponse;
+        String serviceName = "docSigningZ";
+        long startTime = System.currentTimeMillis();
+        String trxId = UUID.randomUUID().toString();
         ObjectMapper mapper = new ObjectMapper();
         try {
-            this.logger.info(serviceStart("docSigningZ"));
-            this.logger.debug(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(signingRequest));
-        } catch (Exception exception) {}
+            logger.info(serviceStart(trxId, serviceName));
+            logger.debug("[{}] request:: \n{}", trxId, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(signingRequest));
+        } catch (Exception ignored) {}
         try {
             if (signingRequest != null && "ALLOK".equals(signingRequest.checkInput())) {
                 checkAndWarningSpesificEmptyParam(signingRequest);
@@ -105,7 +112,10 @@ public class SigningAdapterService {
                     signingRequest.setSrc(newSrc);
                 String signerProfileName = signingRequest.getProfileName();
                 if (signerProfileName != null && !"".equals(signerProfileName.trim())) {
-                    List<Certificate> certs = MyUtil.getSignerCertChainRequestResponse(this.certChainUrl, signerProfileName, signingRequest.getJwToken(), signingRequest.getRefToken(), this.strKeyId);
+//                    List<Certificate> certs = MyUtil.getSignerCertChainRequestResponse(this.certChainUrl, signerProfileName
+//                    , signingRequest.getJwToken(), signingRequest.getRefToken(), this.strKeyId);
+                    List<Certificate> certs = rtSigningService.getSignerCertChainRequestResponse(this.certChainUrl, signerProfileName
+                            , signingRequest.getJwToken(), signingRequest.getRefToken(), strSystemId, strKeyId, trxId);
                     Certificate[] chain = certs.<Certificate>toArray(new Certificate[certs.size()]);
                     this.logger.debug("Finish getting certificate chain");
                     TSAClient tsaClient = null;
@@ -137,7 +147,8 @@ public class SigningAdapterService {
                         crlList = null;
                     }
                     this.logger.debug("Setup spesimen rectangle");
-                    Rectangle rectangle = new Rectangle(signingRequest.getVisLLX(), signingRequest.getVisLLY(), signingRequest.getVisURX(), signingRequest.getVisURY());
+                    Rectangle rectangle = new Rectangle(signingRequest.getVisLLX(), signingRequest.getVisLLY()
+                            , signingRequest.getVisURX(), signingRequest.getVisURY());
                     try {
                         this.logger.debug("Setup spesimen image");
                         Image img = Image.getInstance(signingRequest.getSpesimenPath());
@@ -146,12 +157,12 @@ public class SigningAdapterService {
                         float newHeight = (signingRequest.getVisURY() - signingRequest.getVisLLY());
                         img.scaleToFit(newWidth, newHeight);
                         this.logger.debug("Finish setup spesimen image");
-                        sign(signingRequest.getSrc(), signingRequest.getDest(), signingRequest.getDocpass(), chain, "SHA-256", MakeSignature.CryptoStandard.CMS, signingRequest
-
-                                .getReason(), signingRequest.getLocation(), rectangle, signingRequest
-                                .getVisSignaturePage(), img, signingRequest.getCertificatelevel(), crlList, tsaClient, signerProfileName, signingRequest
-                                .getJwToken(), signingRequest.getRefToken(), shaChecksum, signingRequest
-                                .getRetryFlag());
+                        sign(signingRequest.getSrc(), signingRequest.getDest(), signingRequest.getDocpass(), chain
+                                , "SHA-256", MakeSignature.CryptoStandard.CMS, signingRequest.getReason()
+                                , signingRequest.getLocation(), rectangle, signingRequest.getVisSignaturePage()
+                                , img, signingRequest.getCertificatelevel(), crlList, tsaClient, signerProfileName
+                                , signingRequest.getJwToken(), signingRequest.getRefToken(), shaChecksum
+                                , signingRequest.getRetryFlag(), trxId);
                         docFileSigningResponse = new DocFileSigningResponse();
                         docFileSigningResponse.setStatus(ConstantID.responStatusSuccess);
                         docFileSigningResponse.setErrorCode(ConstantID.errCodeSUCCESS);
@@ -193,10 +204,10 @@ public class SigningAdapterService {
             docFileSigningResponse.setErrorMessage(ex.getMessage());
         }
         try {
-            this.logger.info(serviceStop("docSigningZ"));
-            this.logger.debug(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(docFileSigningResponse));
-        } catch (Exception exception) {}
-        return docFileSigningResponse;
+            logger.debug("[{}] response ::\n{}", trxId, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(docFileSigningResponse));
+            logger.info(serviceStop(trxId, serviceName, System.currentTimeMillis()-startTime));
+        } catch (Exception ignored) {}
+        return new ResponseEntity<>(docFileSigningResponse, HttpStatus.OK);
     }
 
     private void checkAndWarningSpesificEmptyParam(DocFileSigningRequest signingRequest) {
@@ -210,7 +221,11 @@ public class SigningAdapterService {
         }
     }
 
-    private void sign(String src, String dest, String docPass, Certificate[] chain, String digestAlgorithm, MakeSignature.CryptoStandard subfilter, String reason, String location, Rectangle rectangle, int visPage, Image img, String certificateLevel, List<CrlClient> crlList, TSAClient tsaClient, String signerProfileName, String jwToken, String refToken, String shaChecksum, String retryFlag) throws GeneralSecurityException, IOException, DocumentException {
+    private void sign(String src, String dest, String docPass, Certificate[] chain, String digestAlgorithm
+            , MakeSignature.CryptoStandard subfilter, String reason, String location, Rectangle rectangle, int visPage
+            , Image img, String certificateLevel, List<CrlClient> crlList, TSAClient tsaClient, String signerProfileName
+            , String jwToken, String refToken, String shaChecksum, String retryFlag, String trxId
+    ) throws GeneralSecurityException, IOException, DocumentException {
         PdfReader reader;
         this.logger.debug("Entering Sign method process");
         boolean successProcess = true;
@@ -250,31 +265,29 @@ public class SigningAdapterService {
             appearance.setSignatureGraphic(img);
             this.logger.debug("Prepare to create external signature");
             BouncyCastleDigest bouncyCastleDigest = new BouncyCastleDigest();
-            if (signerProfileName.endsWith("PS")) {
-                MyOldExternalSignature myOldExternalSignature = new MyOldExternalSignature(signerProfileName, this.hashUrl, digestAlgorithm, jwToken, refToken, this.strKeyId, shaChecksum, retryFlag);
-            } else {
-                myExternalSignature = new MyExternalSignature(signerProfileName, this.hashUrl, digestAlgorithm, jwToken, refToken, this.strKeyId, shaChecksum, retryFlag);
-            }
+            myExternalSignature = new MyExternalSignature(signerProfileName, this.hashUrl, digestAlgorithm, jwToken
+                    , refToken, this.strKeyId, shaChecksum, retryFlag, strSystemId, trxId, rtSigningService);
             try {
-                MakeSignature.signDetached(appearance, (ExternalDigest)bouncyCastleDigest, (ExternalSignature)myExternalSignature, chain, crlList, null, tsaClient, 0, subfilter);
+                MakeSignature.signDetached(appearance, bouncyCastleDigest, (ExternalSignature)myExternalSignature
+                        , chain, crlList, null, tsaClient, 0, subfilter);
+            } catch (SignAdapterException e) {
+                throw e;
             } catch (Exception e) {
-                this.logger.error("Error Signing document", e);
+//                logger.debug("Error Signing document", e);
                 String recommendC = "you can retry signing request, using same api with specified parameter 'retryFlag':'1'";
                 throw new SignAdapterException(e.getMessage() + ",  *****" + recommendC, e.getCause(), ConstantID.errCodeAbnormalErrorHashSigning);
             }
         } catch (Exception e) {
-            this.logger.error("Error Processing document", e);
+//            logger.debug("Error Processing document", e);
             successProcess = false;
             throw e;
         } finally {
-            if (reader != null)
-                try {
-                    reader.close();
-                } catch (Exception exception) {}
-            if (os != null)
-                try {
-                    os.close();
-                } catch (Exception exception) {}
+            try {
+                reader.close();
+            } catch (Exception ignored) {}
+            try {
+                os.close();
+            } catch (Exception ignored) {}
             if (!successProcess) {
                 File destFile = new File(dest);
                 if (destFile.exists())
@@ -440,11 +453,11 @@ public class SigningAdapterService {
         return "NOT_CERTIFIED";
     }
 
-    private String serviceStart(String service) throws Exception {
-        return "===== " + service + " [S] =====";
+    private String serviceStart(String trxId, String service) throws Exception {
+        return "===== ["+trxId+"] [" + service + "] [S] =====";
     }
 
-    private String serviceStop(String service) throws Exception {
-        return "===== " + service + " [E] =====";
+    private String serviceStop(String trxId, String service, long duration) throws Exception {
+        return "===== ["+trxId+"] [" + service + "] ["+duration+"]ms [E] =====";
     }
 }
