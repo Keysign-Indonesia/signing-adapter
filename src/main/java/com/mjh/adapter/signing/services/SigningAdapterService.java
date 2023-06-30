@@ -16,7 +16,6 @@ import com.itextpdf.text.pdf.security.BouncyCastleDigest;
 import com.itextpdf.text.pdf.security.CrlClient;
 import com.itextpdf.text.pdf.security.CrlClientOnline;
 import com.itextpdf.text.pdf.security.EncryptionAlgorithms;
-import com.itextpdf.text.pdf.security.ExternalDigest;
 import com.itextpdf.text.pdf.security.ExternalSignature;
 import com.itextpdf.text.pdf.security.MakeSignature;
 import com.itextpdf.text.pdf.security.PdfPKCS7;
@@ -27,19 +26,18 @@ import com.mjh.adapter.signing.common.SignAdapterException;
 import com.mjh.adapter.signing.model.DocFileSigningRequest;
 import com.mjh.adapter.signing.model.DocFileSigningResponse;
 import com.mjh.adapter.signing.utils.MyExternalSignature;
-import com.mjh.adapter.signing.utils.MyUtil;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
-import java.security.Provider;
 import java.security.Security;
 import java.security.cert.Certificate;
 import java.util.*;
-
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -93,6 +91,8 @@ public class SigningAdapterService {
     @PostMapping({"/docSigningZ"})
     @Operation(summary = "docSigningZ", description = "Signing Document File Rest Service")
     public ResponseEntity<DocFileSigningResponse> docSigningZ(@RequestBody DocFileSigningRequest signingRequest) throws Exception {
+        if (Security.getProvider("BC") == null)
+            Security.addProvider(new BouncyCastleProvider());
         DocFileSigningResponse docFileSigningResponse;
         String serviceName = "docSigningZ";
         long startTime = System.currentTimeMillis();
@@ -136,7 +136,7 @@ public class SigningAdapterService {
                         this.logger.debug("Setup Crl Client using cert chain info");
                         CrlClient crlClient = new CrlClientOnline(chain);
                         crlList.add(crlClient);
-                    } catch (Exception exception) {}
+                    } catch (Exception ignored) {}
                     if (this.crlURL != null && !"".equals(this.crlURL.trim()) && !"empty".equals(this.crlURL.trim())) {
                         this.logger.debug("Setup Crl Client using predefine url");
                         CrlClient crlClient = new CrlClientOnline(this.crlURL);
@@ -319,16 +319,14 @@ public class SigningAdapterService {
     }
 
     public String validateOrUpgrade(String src, String destOrig, String docPass) throws SignAdapterException {
-        BouncyCastleProvider providerBC = new BouncyCastleProvider();
-        Security.addProvider((Provider)providerBC);
+        if (Security.getProvider("BC") == null)
+            Security.addProvider(new BouncyCastleProvider());
         try {
             Field algorithmNamesField = EncryptionAlgorithms.class.getDeclaredField("algorithmNames");
             algorithmNamesField.setAccessible(true);
             HashMap<String, String> algorithmNames = (HashMap<String, String>)algorithmNamesField.get(null);
             algorithmNames.put("1.2.840.10045.4.3.2", "ECDSA");
-        } catch (NoSuchFieldException e) {
-            this.logger.error("Error put custom algotithm names", e);
-        } catch (IllegalAccessException e) {
+        } catch (NoSuchFieldException | IllegalAccessException e) {
             this.logger.error("Error put custom algotithm names", e);
         }
         Document document = new Document();
@@ -353,10 +351,12 @@ public class SigningAdapterService {
             } else {
                 if (Character.getNumericValue(reader.getPdfVersion()) >= 6)
                     return dest;
+                if (blnEncrypted && Character.getNumericValue(reader.getPdfVersion()) >= 5)
+                    return dest;
                 if (blnEncrypted)
                     throw new SignAdapterException("Document password protected, cannot upgrade document version, please use PDF version 1.6 or above", ConstantID.errCodeUpgradeDocumentException);
                 dest = destOrig + ".bckp";
-                PdfSmartCopy pdfSmartCopy = new PdfSmartCopy(document, new FileOutputStream(dest));
+                PdfSmartCopy pdfSmartCopy = new PdfSmartCopy(document, Files.newOutputStream(Paths.get(dest)));
                 pdfSmartCopy.setPdfVersion('7');
                 Map<String, String> info = reader.getInfo();
                 if (info.get("Title") != null)
@@ -389,19 +389,17 @@ public class SigningAdapterService {
             exectionErrMessage = "DocumentException-" + e.getMessage();
             this.logger.warn("DocumentException while processing document with message [" + e.getMessage() + "]");
         } finally {
-            if (document != null) {
-                try {
-                    document.close();
-                } catch (Exception e) {
-                    this.logger.warn("Exception closing document with message [" + e.getMessage() + "]");
-                }
-                if (reader != null)
-                    try {
-                        reader.close();
-                    } catch (Exception e) {
-                        this.logger.warn("Exception closing reader with message [" + e.getMessage() + "]");
-                    }
+            try {
+                document.close();
+            } catch (Exception e) {
+                this.logger.warn("Exception closing document with message [" + e.getMessage() + "]");
             }
+            if (reader != null)
+                try {
+                    reader.close();
+                } catch (Exception e) {
+                    this.logger.warn("Exception closing reader with message [" + e.getMessage() + "]");
+                }
         }
         if (validateResult == 1)
             throw new SignAdapterException("Source Document has been change since it was signed", ConstantID.errCodeIntegrityCheckRevisionFailed);
