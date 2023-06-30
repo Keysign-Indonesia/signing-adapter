@@ -1,42 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml" />
     <property name="LOG_PATH" value="logs"/>
     <timestamp key="currentTimestamp" datePattern="yyyy-MM-dd'_'HH"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>
-                %d{dd-MM-yyyy HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %logger.%M\(%line\) - %msg%n
-            </pattern>
-        </encoder>
-    </appender>
-
-    <appender name="SAVE-TO-FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/signadapter.log</file>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <Pattern>
-                %d{dd-MM-yyyy HH:mm:ss.SSS} [%thread] %-5level %logger{36}.%M - %msg%n
+                %d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n
             </Pattern>
         </encoder>
-
+    </appender>
+    <appender name="FILE-ROLLING" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/signadapter.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <!-- the rollover occurs when the active log file reaches the maximum file size before the end of the time period. -->
-            <!-- The rollover period is inferred from the smallest date unit value of fileNamePattern -->
-            <!-- each file should be at most [maxFileSize], keep [maxHistory] days worth of history, but at most [totalSizeCap] -->
+            <fileNamePattern>${LOG_PATH}/archived/signadapter.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <!-- each archived file, size max 10MB -->
             <maxFileSize>100MB</maxFileSize>
-            <fileNamePattern>
-                ${LOG_PATH}/archived/signadapter.%d{yyyy-MM-dd}.%i.log
-            </fileNamePattern>
-            <maxHistory>30</maxHistory>
+            <!-- total size of all archive files, if total size > 20GB, it will delete old archived file -->
             <totalSizeCap>1GB</totalSizeCap>
+            <!-- 60 days to keep -->
+            <maxHistory>30</maxHistory>
         </rollingPolicy>
+        <encoder>
+            <pattern>%d %p %c{1.} [%t] %m%n</pattern>
+        </encoder>
     </appender>
 
-    <logger name="com.mjh" level="INFO" additivity="false">
-        <appender-ref ref="SAVE-TO-FILE"/>
-    </logger>
+    <springProfile name="default">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE" />
+        </root>
+    </springProfile>
 
-    <root level="WARN">
-        <appender-ref ref="CONSOLE"/>
-    </root>
+    <springProfile name="prod">
+        <root level="WARN">
+            <appender-ref ref="CONSOLE" />
+            <appender-ref ref="FILE-ROLLING" />
+        </root>
+    </springProfile>
+
 </configuration>
